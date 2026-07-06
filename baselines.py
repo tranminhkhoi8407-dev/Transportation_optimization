@@ -1,7 +1,8 @@
 """
 baselines.py
 ------------
-Hai phương án cơ sở (baseline) để so sánh với thuật toán chính (Cheapest Insertion + EDF ngày):
+Ba phương án cơ sở (baseline) để so sánh với thuật toán chính (Cheapest Insertion + EDF ngày),
+đúng theo 3 gợi ý nêu trong đề bài:
 
   BASELINE 1 — "Nearest Neighbor" (luôn giao đến khách gần nhất):
     Mỗi ngày, với tập candidates hôm đó, xây route bằng cách lặp: từ vị trí hiện tại,
@@ -17,10 +18,22 @@ Hai phương án cơ sở (baseline) để so sánh với thuật toán chính (
     theo đúng thứ tự đó. Đây là "tham lam theo deadline trong ngày", đơn giản hơn EDF
     liên-ngày và không dùng cheapest insertion (chỉ nối đuôi).
 
-Cả 2 baseline đều dùng chung luật rolling-horizon (đơn không giao được thì tự động thử
+  BASELINE 3 — "Hạn chế tối đa việc hẹn lại" (Minimize Deferral / Maximum Packing):
+    Khác biệt CĂN BẢN so với 2 baseline trên: thay vì tối ưu quãng đường (baseline 1)
+    hay xử lý theo deadline (baseline 2), baseline này đặt mục tiêu DUY NHẤT là nhồi
+    được CÀNG NHIỀU đơn CÀNG TỐT vào route của ngày hôm nay, chấp nhận đi vòng vèo hơn,
+    miễn là còn khả thi (đúng time window, về kho kịp giờ). Cụ thể: với mỗi candidate
+    (duyệt theo thứ tự nhu cầu tăng dần -- ưu tiên "nhét" các đơn nhỏ, dễ chèn trước, để
+    dành chỗ trống cho nhiều đơn hơn), thử LẦN LƯỢT MỌI vị trí có thể chèn trong route
+    hiện tại và chấp nhận NGAY vị trí khả thi ĐẦU TIÊN tìm thấy -- không tìm vị trí tối
+    ưu như Cheapest Insertion, không giới hạn chỉ nối đuôi như baseline 1/2. Đây chính
+    là điểm tương ứng với gợi ý đề bài "hạn chế tối đa việc hẹn lại khách sang ngày hôm
+    sau": ưu tiên tuyệt đối cho SỐ LƯỢNG đơn giữ lại trong ngày, hy sinh chất lượng
+    route (tổng quãng đường / thời gian chờ) để đổi lấy mục tiêu đó.
+
+Cả 3 baseline đều dùng chung luật rolling-horizon (đơn không giao được thì tự động thử
 lại các ngày sau trong tuần) giống thuật toán chính, để việc so sánh là công bằng — khác
-biệt DUY NHẤT nằm ở (a) thứ tự chọn candidate mỗi ngày, và (b) chiến lược chèn vào route
-(nối đuôi đơn giản, so với tìm vị trí chèn rẻ nhất).
+biệt DUY NHẤT nằm ở (a) thứ tự chọn candidate mỗi ngày, và (b) chiến lược chèn vào route.
 """
 
 from dataclasses import dataclass, field
@@ -29,6 +42,7 @@ from data_model import Customer, euclidean, travel_time_minutes
 from scheduler import (
     DayRoute, Stop, WeeklyResult, DAY_END_MINUTE,
     earliest_feasible_service, earliest_window_end_in_week,
+    try_insert_at_position,
 )
 
 
@@ -113,9 +127,51 @@ def day_route_earliest_deadline_append(
     return route, unserved
 
 
+def day_route_minimize_deferral(
+    candidates: List[Customer], depot: Customer, all_points: Dict[str, Customer], day: int,
+):
+    """BASELINE 3: "hạn chế tối đa việc hẹn lại khách sang ngày hôm sau".
+
+    Khác với Cheapest Insertion (thuật toán chính) vốn quét HẾT mọi (khách, vị trí) rồi
+    mới chọn phép chèn rẻ nhất, hàm này theo đúng tinh thần "maximum packing": duyệt
+    candidates theo demand TĂNG DẦN (đơn nhỏ dễ "nhét vừa" hơn, ưu tiên xử lý trước để
+    dành chỗ cho được nhiều đơn hơn về sau), và với MỖI candidate, thử lần lượt từng vị
+    trí chèn từ đầu route -> cuối route, CHẤP NHẬN NGAY vị trí khả thi ĐẦU TIÊN tìm được
+    (không so sánh tiếp các vị trí còn lại để tìm vị trí "rẻ nhất"). Mục tiêu duy nhất là
+    tối đa hoá SỐ LƯỢNG đơn giữ được trong ngày hôm nay, chấp nhận route có thể đi vòng
+    vèo, kém tối ưu về quãng đường/thời gian hơn thuật toán chính.
+    """
+
+    def demand_key(c: Customer) -> float:
+        return c.demand
+
+    ordered = sorted(candidates, key=demand_key)
+    stops: List[Stop] = []
+    unserved: List[Customer] = []
+
+    for cust in ordered:
+        placed = False
+        for pos in range(len(stops) + 1):
+            res = try_insert_at_position(stops, depot, all_points, cust, day, pos)
+            if res is not None:
+                _new_stop, _new_return_time, new_full_stops = res
+                stops = new_full_stops
+                placed = True
+                break  # dừng ngay khi tìm được 1 vị trí khả thi -- không tìm tiếp vị trí tốt hơn
+        if not placed:
+            unserved.append(cust)
+
+    return_time = 0.0
+    if stops:
+        last_point = all_points[stops[-1].cust_id]
+        return_time = stops[-1].service_end + travel_time_minutes(last_point, depot)
+    route = DayRoute(day=day, stops=stops, return_time=return_time)
+    return route, unserved
+
+
 def run_baseline(depot: Customer, customers: Dict[str, Customer], strategy: str) -> WeeklyResult:
     """
-    strategy: 'nearest_neighbor' hoặc 'earliest_deadline_append'
+    strategy: 'nearest_neighbor', 'earliest_deadline_append', hoặc 'minimize_deferral'
     Dùng chung khung rolling-horizon 7 ngày như weekly_scheduler(), chỉ khác hàm xây route/ngày.
     Candidate mỗi ngày = khách còn pending & có window đúng ngày đó (giống thuật toán chính,
     để đảm bảo so sánh công bằng về mặt "cơ hội được xét").
@@ -123,6 +179,7 @@ def run_baseline(depot: Customer, customers: Dict[str, Customer], strategy: str)
     day_fn = {
         "nearest_neighbor": day_route_nearest_neighbor,
         "earliest_deadline_append": day_route_earliest_deadline_append,
+        "minimize_deferral": day_route_minimize_deferral,
     }[strategy]
 
     result = WeeklyResult()
@@ -147,7 +204,7 @@ if __name__ == "__main__":
 
     depot, customers = load_data("Data/locations.csv", "Data/time_windows.csv")
 
-    for strategy in ["nearest_neighbor", "earliest_deadline_append"]:
+    for strategy in ["nearest_neighbor", "earliest_deadline_append", "minimize_deferral"]:
         res = run_baseline(depot, customers, strategy)
         total_served = sum(len(r.served_ids()) for r in res.routes.values())
         print(f"\n=== Baseline: {strategy} ===")
