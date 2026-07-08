@@ -135,12 +135,12 @@ def print_metrics(name: str, m: WeeklyMetrics):
 
 if __name__ == "__main__":
     from data_model import load_data
-    from scheduler import weekly_scheduler
+    from scheduler import weekly_scheduler_with_local_search
     from baselines import run_baseline
 
     depot, customers = load_data("Data/locations.csv", "Data/time_windows.csv")
 
-    main_result = weekly_scheduler(depot, customers)
+    main_result = weekly_scheduler_with_local_search(depot, customers)
     m_main = compute_metrics(depot, customers, main_result)
     print_metrics("Thuật toán chính (Cheapest Insertion + EDF liên-ngày)", m_main)
 

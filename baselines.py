@@ -172,7 +172,7 @@ def day_route_minimize_deferral(
 def run_baseline(depot: Customer, customers: Dict[str, Customer], strategy: str) -> WeeklyResult:
     """
     strategy: 'nearest_neighbor', 'earliest_deadline_append', hoặc 'minimize_deferral'
-    Dùng chung khung rolling-horizon 7 ngày như weekly_scheduler(), chỉ khác hàm xây route/ngày.
+    Dùng chung khung rolling-horizon 7 ngày như weekly_scheduler_with_local_search(), chỉ khác hàm xây route/ngày.
     Candidate mỗi ngày = khách còn pending & có window đúng ngày đó (giống thuật toán chính,
     để đảm bảo so sánh công bằng về mặt "cơ hội được xét").
     """
