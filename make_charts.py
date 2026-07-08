@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
 from data_model import load_data
+from weekly_route import plot_weekly_routes_interactive
 from scheduler import weekly_scheduler
 from baselines import run_baseline
 from metrics import compute_metrics
@@ -21,6 +22,7 @@ plt.rcParams["font.family"] = "DejaVu Sans"  # hỗ trợ tốt tiếng Việt c
 depot, customers = load_data("Data/locations.csv", "Data/time_windows.csv")
 
 main_result = weekly_scheduler(depot, customers)
+plot_weekly_routes_interactive(depot, customers, main_result, "main_algorithm_routes.html")
 nn_result = run_baseline(depot, customers, "nearest_neighbor")
 edd_result = run_baseline(depot, customers, "earliest_deadline_append")
 md_result = run_baseline(depot, customers, "minimize_deferral")
