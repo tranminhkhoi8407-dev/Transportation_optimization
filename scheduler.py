@@ -70,16 +70,26 @@ def try_insert_at_position(
     new_cust: Customer,
     day: int,
     pos: int,
-) -> Optional[Tuple[Stop, float, List[Stop]]]:
+) -> Optional[Tuple[Stop, float, List[Stop], float]]:
     """
     Thử chèn `new_cust` vào vị trí `pos` (0..len(route_stops)) trong route hiện tại.
-    Trả về (stop_moi, chi_phi_tang_them, danh_sach_stop_sau_chen_da_cap_nhat_lai_thoi_gian)
-    nếu khả thi (không vi phạm time window của new_cust LẪN của các điểm phía sau nó),
-    ngược lại trả None.
+    Trả về (stop_moi, new_return_time, danh_sach_stop_sau_chen_da_cap_nhat_lai_thoi_gian,
+    local_insertion_cost) nếu khả thi (không vi phạm time window của new_cust LẪN của các
+    điểm phía sau nó), ngược lại trả None.
 
-    Chi phí tăng thêm được đo bằng THỜI GIAN TĂNG THÊM của toàn tuyến (phút), bao gồm cả
-    di chuyển lẫn chờ đợi -- phù hợp vì đơn vị giới hạn cứng của ta là "phải về kho trước
-    24:00", nên thời gian là đại lượng cần tối thiểu hoá, không đơn thuần là quãng đường.
+    `new_return_time`: thời điểm về kho MỚI của toàn route -- dùng để KIỂM TRA KHẢ THI
+    (<=24h) và để cập nhật return_time thật của route. KHÔNG dùng giá trị này để XẾP HẠNG
+    ứng viên chèn (xem local_insertion_cost bên dưới, và giải thích trong BUGFIX_NOTES.md).
+
+    `local_insertion_cost`: chi phí CỤC BỘ của riêng phép chèn này, gồm 2 phần:
+      (a) quãng đường-thời gian tăng thêm TẠI CHỖ chèn:
+              travel(prev, new) + travel(new, next) - travel(prev, next)
+          (nếu chèn cuối route, next = None -> chỉ có travel(prev, new), không có phần trừ)
+      (b) waiting time PHÁT SINH của riêng new_cust (nếu new_cust phải chờ đến window.start).
+    Đây là định nghĩa CHUẨN của "Cheapest Insertion Cost" trong y văn VRPTW (Solomon 1987),
+    KHÔNG cộng dồn phần "waiting-time bị dịch chuyển dây chuyền" của các điểm phía sau vị
+    trí chèn -- xem BUGFIX_NOTES.md để hiểu tại sao cộng dồn phần đó làm sai lệch xếp hạng
+    khi route đã đông (chèn-giữa bị phạt oan so với chèn-cuối).
     """
     windows = new_cust.windows_on(day)
     if not windows:
@@ -96,6 +106,18 @@ def try_insert_at_position(
     service_end = service_start + new_cust.service_time
 
     new_stop = Stop(new_cust.id, arrival, service_start, service_end, used_window)
+
+    # --- Tính local_insertion_cost (KHÔNG phụ thuộc các điểm phía sau) ---
+    travel_prev_new = travel_time_minutes(prev_point, new_cust)
+    own_waiting = max(0.0, service_start - arrival)  # thời gian new_cust tự phải chờ
+    if pos < len(route_stops):
+        next_point = all_points[route_stops[pos].cust_id]
+        travel_prev_next_old = travel_time_minutes(prev_point, next_point)
+        travel_new_next = travel_time_minutes(new_cust, next_point)
+        detour = travel_prev_new + travel_new_next - travel_prev_next_old
+    else:
+        detour = travel_prev_new  # chèn cuối route: không có "next" để trừ lại
+    local_insertion_cost = detour + own_waiting
 
     # Lan truyền thời gian cho các điểm PHÍA SAU vị trí chèn để kiểm tra vẫn khả thi
     updated_after: List[Stop] = []
@@ -126,8 +148,7 @@ def try_insert_at_position(
         return None  # vi phạm ràng buộc phải về kho trước nửa đêm
 
     new_full_stops = route_stops[:pos] + [new_stop] + updated_after
-    old_return_component = 0.0  # sẽ tính chi phí tăng thêm ở ngoài (dùng return_time cũ)
-    return new_stop, new_return_time, new_full_stops
+    return new_stop, new_return_time, new_full_stops, local_insertion_cost
 
 
 def day_route_cheapest_insertion(
@@ -150,23 +171,33 @@ def day_route_cheapest_insertion(
     return_time = travel_time_minutes(depot, depot)  # = 0 ban đầu (route rỗng)
 
     while remaining:
-        best_choice = None  # (delta_cost, cust_id, pos, new_stop, new_return_time, new_stops)
+        best_choice = None  # (local_cost, cust_id, pos, new_stop, new_return_time, new_stops)
         for cust in remaining.values():
             for pos in range(len(stops) + 1):
                 res = try_insert_at_position(stops, depot, all_points, cust, day, pos)
                 if res is None:
                     continue
-                new_stop, new_return_time, new_full_stops = res
-                delta = new_return_time - return_time
-                if best_choice is None or delta < best_choice[0]:
-                    best_choice = (delta, cust.id, pos, new_stop, new_return_time, new_full_stops)
+                new_stop, new_return_time, new_full_stops, local_cost = res
+                # XẾP HẠNG theo local_insertion_cost (chi phí chèn CỤC BỘ tại chỗ chèn),
+                # KHÔNG dùng (new_return_time - return_time). Lý do: hiệu số return_time
+                # cộng dồn cả phần waiting-time bị dịch chuyển dây chuyền của MỌI điểm phía
+                # sau vị trí chèn -- khi route đã đông, phần dịch chuyển này thường LỚN HƠN
+                # nhiều so với chi phí chèn thật, khiến phép chèn-giữa (dù khách ở rất gần
+                # route) bị "phạt oan" nặng hơn phép chèn-cuối (dù khách ở xa) chỉ vì có
+                # nhiều điểm phía sau bị dịch lịch. local_insertion_cost đo đúng "chèn khách
+                # này tốn thêm bao nhiêu" theo đúng định nghĩa Cheapest Insertion cổ điển,
+                # không lẫn hệ quả dây chuyền của các quyết định TRƯỚC ĐÓ vào việc so sánh.
+                # (Feasibility -- bao gồm chặn 24h -- vẫn được try_insert_at_position() kiểm
+                # tra đầy đủ dựa trên new_return_time như cũ; ở đây chỉ đổi tiêu chí XẾP HẠNG.)
+                if best_choice is None or local_cost < best_choice[0]:
+                    best_choice = (local_cost, cust.id, pos, new_stop, new_return_time, new_full_stops)
 
         if best_choice is None:
             break  # không còn ai chèn được nữa trong ngày hôm nay
 
         _, chosen_id, _, _, new_return_time, new_full_stops = best_choice
         stops = new_full_stops
-        return_time = new_return_time
+        return_time = new_return_time  # return_time THẬT của route vẫn phải lấy new_return_time
         del remaining[chosen_id]
 
     route = DayRoute(day=day, stops=stops, return_time=return_time)
@@ -250,6 +281,90 @@ def weekly_scheduler(
         # `pending` và sẽ được xét lại vào ngày kế tiếp có window (vòng lặp ngày sau tự làm).
 
     # Sau ngày Chủ Nhật (day=7), pending còn lại = không hoàn thành
+    result.unfulfilled = list(pending.keys())
+    return result
+
+
+def weekly_scheduler_with_local_search(
+    depot: Customer,
+    customers: Dict[str, Customer],
+    max_orders_per_day: Optional[int] = None,
+) -> WeeklyResult:
+    """
+    Y HỆT weekly_scheduler(), nhưng thêm 2 lớp hậu xử lý cho MỖI NGÀY sau khi Cheapest
+    Insertion chèn xong candidates hôm đó -- và ĐÂY LÀ 2 VIỆC KHÁC NHAU, không gộp làm 1
+    khi đánh giá hiệu quả (xem so sánh chi tiết trong report):
+
+      (a) improve_route() -- 2-opt + Or-opt (local_search.py): CHỈ đổi thứ tự các khách
+          đã có trong route, KHÔNG thêm/bớt ai. Đây mới là "Local Search" đúng nghĩa.
+          Cost function tối ưu là return_time (giống hệt try_insert_at_position() của
+          Cheapest Insertion), để nhất quán thước đo với thuật toán chính -- không tối
+          ưu quãng đường thuần, vì nhiều ngày (vd. ngày 5) phần lớn return_time là thời
+          gian CHỜ time-window, không phải di chuyển, nên tối ưu quãng đường thuần sẽ
+          lệch mục tiêu thực (đề bài ưu tiên completion rate & tổng thời gian, không
+          phải distance đơn thuần).
+
+      (b) "Chèn thêm candidate bị bỏ lại" (đoạn code bên dưới): route sau (a) thường
+          NGẮN HƠN, có thể còn dư thời gian (<24h) trong ngày. Bước này tận dụng chỗ dư
+          đó để thử chèn thêm các candidate hôm nay từng bị Cheapest Insertion bỏ lại
+          (unserved_today) -- đây là một CẢI TIẾN RIÊNG, có thể làm TĂNG completion rate
+          (khác với (a), vốn giữ nguyên completion rate tuyệt đối). Khi so sánh "Local
+          Search cải thiện được bao nhiêu", phải tách (a) và (b) ra đo riêng, nếu không
+          sẽ đánh giá sai vì (b) có thể làm quãng đường TĂNG (thêm 1 điểm luôn làm route
+          dài hơn) trong khi vẫn là một sự đánh đổi tốt (đổi lấy 1 đơn hàng được giao).
+
+    Local Search chạy TRƯỚC khi xoá các khách đã giao khỏi `pending`, vì cần all_points
+    chứa đúng Customer object của mọi điểm trong route (kể cả các khách vừa được chèn).
+    """
+    from local_search import improve_route  # import trễ (deferred) để tránh circular import:
+    # local_search.py cần Stop/DayRoute từ scheduler.py ngay lúc load module, nên
+    # scheduler.py không thể import local_search ở đầu file -- chỉ import khi thực sự
+    # gọi tới hàm này.
+
+    result = WeeklyResult()
+    pending = dict(customers)
+
+    for day in range(1, 8):
+        candidates = [c for c in pending.values() if c.has_any_window_on(day)]
+        candidates.sort(key=lambda c: earliest_window_end_in_week(c, day))
+        if max_orders_per_day is not None:
+            candidates = candidates[:max_orders_per_day]
+
+        all_points = {depot.id: depot, **pending}
+        route, unserved_today = day_route_cheapest_insertion(candidates, depot, all_points, day)
+
+        # Hậu xử lý bằng Local Search NGAY TẠI ĐÂY, khi all_points còn đầy đủ mọi khách
+        # trong route (kể cả khách sắp bị xoá khỏi pending ở bước dưới).
+        route = improve_route(route, depot, all_points, day)
+
+        # Route ngắn hơn sau Local Search có thể còn dư thời gian trong ngày (<24h) --
+        # thử chèn thêm các candidate hôm nay từng bị bỏ lại (unserved_today), theo đúng
+        # cơ chế Cheapest Insertion (không đổi chiến lược, chỉ tận dụng "chỗ trống" mới).
+        still_unserved = []
+        for cust in unserved_today:
+            # Xếp hạng vị trí chèn theo local_insertion_cost (nhất quán với Cheapest
+            # Insertion chính -- xem giải thích chi tiết trong day_route_cheapest_insertion()
+            # và BUGFIX_NOTES.md), thay vì theo new_return_time trực tiếp.
+            best_stops, best_return, best_local_cost = None, None, None
+            for pos in range(len(route.stops) + 1):
+                res = try_insert_at_position(route.stops, depot, all_points, cust, day, pos)
+                if res is None:
+                    continue
+                _new_stop, new_return_time, new_full_stops, local_cost = res
+                if best_local_cost is None or local_cost < best_local_cost:
+                    best_stops, best_return, best_local_cost = new_full_stops, new_return_time, local_cost
+            if best_stops is not None:
+                route = DayRoute(day=day, stops=best_stops, return_time=best_return)
+            else:
+                still_unserved.append(cust)
+
+        result.routes[day] = route
+
+        served_ids = set(route.served_ids())
+        for cid in served_ids:
+            result.delivered_day_of[cid] = day
+            del pending[cid]
+
     result.unfulfilled = list(pending.keys())
     return result
 

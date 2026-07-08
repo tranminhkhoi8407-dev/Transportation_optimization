@@ -154,7 +154,7 @@ def day_route_minimize_deferral(
         for pos in range(len(stops) + 1):
             res = try_insert_at_position(stops, depot, all_points, cust, day, pos)
             if res is not None:
-                _new_stop, _new_return_time, new_full_stops = res
+                _new_stop, _new_return_time, new_full_stops, _local_cost = res
                 stops = new_full_stops
                 placed = True
                 break  # dừng ngay khi tìm được 1 vị trí khả thi -- không tìm tiếp vị trí tốt hơn
