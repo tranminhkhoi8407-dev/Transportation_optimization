@@ -12,7 +12,7 @@ Nếu có bất kỳ vi phạm nào, in ra chi tiết lỗi.
 """
 
 from data_model import load_data, travel_time_minutes
-from scheduler import weekly_scheduler, DAY_END_MINUTE
+from scheduler import weekly_scheduler_with_local_search, DAY_END_MINUTE
 
 EPS = 1e-6
 
@@ -111,7 +111,7 @@ def verify(depot, customers, result):
 
 if __name__ == "__main__":
     depot, customers = load_data("Data/locations.csv", "Data/time_windows.csv")
-    result = weekly_scheduler(depot, customers)
+    result = weekly_scheduler_with_local_search(depot, customers)
     errors, reasons = verify(depot, customers, result)
 
     if errors:

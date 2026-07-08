@@ -291,30 +291,53 @@ def weekly_scheduler_with_local_search(
     max_orders_per_day: Optional[int] = None,
 ) -> WeeklyResult:
     """
-    Y HỆT weekly_scheduler(), nhưng thêm 2 lớp hậu xử lý cho MỖI NGÀY sau khi Cheapest
-    Insertion chèn xong candidates hôm đó -- và ĐÂY LÀ 2 VIỆC KHÁC NHAU, không gộp làm 1
-    khi đánh giá hiệu quả (xem so sánh chi tiết trong report):
+    Y HỆT weekly_scheduler(), nhưng xây route mỗi ngày qua HAI GIAI ĐOẠN thay vì một,
+    cộng thêm 2-opt/Or-opt -- và đây là điểm khác biệt CĂN BẢN so với các bản trước
+    (bản cũ trộn chung mọi candidate rồi mới "chèn bù" người bị bỏ lại SAU KHI route
+    đã định hình; bản này ĐẢO NGƯỢC thứ tự: giữ chỗ cho người khó trước, rồi mới lấp
+    người còn linh hoạt vào phần dư).
 
-      (a) improve_route() -- 2-opt + Or-opt (local_search.py): CHỈ đổi thứ tự các khách
-          đã có trong route, KHÔNG thêm/bớt ai. Đây mới là "Local Search" đúng nghĩa.
-          Cost function tối ưu là return_time (giống hệt try_insert_at_position() của
-          Cheapest Insertion), để nhất quán thước đo với thuật toán chính -- không tối
-          ưu quãng đường thuần, vì nhiều ngày (vd. ngày 5) phần lớn return_time là thời
-          gian CHỜ time-window, không phải di chuyển, nên tối ưu quãng đường thuần sẽ
-          lệch mục tiêu thực (đề bài ưu tiên completion rate & tổng thời gian, không
-          phải distance đơn thuần).
+    ĐỘNG LỰC (xem BUGFIX_NOTES.md để có trace chi tiết từng ca cụ thể): với Cheapest
+    Insertion thuần tuý, khi 2 khách có chi phí chèn GẦN BẰNG NHAU tại một bước (vd.
+    18.20 vs 18.35 -- chênh chưa tới 1%), thuật toán luôn chọn người rẻ hơn TRƯỚC, đẩy
+    người thua cuộc sang bước sau. Với khách còn NHIỀU ngày khác trong tuần, bị đẩy lùi
+    một bước không sao -- ngày mai vẫn còn cơ hội. Nhưng với khách mà HÔM NAY LÀ NGÀY
+    CUỐI CÙNG họ còn window trong cả tuần ("last-chance"), bị đẩy lùi dù chỉ 1 bước là
+    fail vĩnh viễn, vì route sau đó tiếp tục phát triển sang khu vực khác trên bản đồ,
+    khoá luôn khả năng quay lại chèn họ -- dù lúc thua họ chỉ cách route vài trăm mét.
+    Cheapest Insertion không phân biệt được 2 loại "thua" này (thua-còn-cứu-được vs.
+    thua-là-mất-luôn) vì nó chỉ nhìn chi phí cục bộ, không nhìn "khách này còn bao
+    nhiêu cơ hội trong tuần".
 
-      (b) "Chèn thêm candidate bị bỏ lại" (đoạn code bên dưới): route sau (a) thường
-          NGẮN HƠN, có thể còn dư thời gian (<24h) trong ngày. Bước này tận dụng chỗ dư
-          đó để thử chèn thêm các candidate hôm nay từng bị Cheapest Insertion bỏ lại
-          (unserved_today) -- đây là một CẢI TIẾN RIÊNG, có thể làm TĂNG completion rate
-          (khác với (a), vốn giữ nguyên completion rate tuyệt đối). Khi so sánh "Local
-          Search cải thiện được bao nhiêu", phải tách (a) và (b) ra đo riêng, nếu không
-          sẽ đánh giá sai vì (b) có thể làm quãng đường TĂNG (thêm 1 điểm luôn làm route
-          dài hơn) trong khi vẫn là một sự đánh đổi tốt (đổi lấy 1 đơn hàng được giao).
+    HAI GIAI ĐOẠN xây route mỗi ngày:
 
-    Local Search chạy TRƯỚC khi xoá các khách đã giao khỏi `pending`, vì cần all_points
-    chứa đúng Customer object của mọi điểm trong route (kể cả các khách vừa được chèn).
+      GIAI ĐOẠN 1 -- "giữ chỗ" cho last-chance candidates: tách riêng các candidate
+          hôm nay mà next_available_day(cust, day) trả về None (không còn ngày nào
+          khác trong tuần), xây MỘT route Cheapest Insertion CHỈ với nhóm này trước
+          tiên. Vì route lúc này còn trống, họ được cạnh tranh vị trí công bằng với
+          NHAU (ai rẻ hơn thắng, vẫn đúng tinh thần Cheapest Insertion), thay vì phải
+          cạnh tranh với toàn bộ candidate bình thường của ngày và luôn thua vì bị xét
+          sau cùng như cơ chế "chèn bù" cũ.
+
+      GIAI ĐOẠN 2 -- lấp candidate bình thường (còn ngày khác trong tuần) vào phần
+          route còn lại, theo đúng EDF + Cheapest Insertion như thuật toán chính. Nhóm
+          này "chịu thiệt" khi bị từ chối, vì họ luôn còn ít nhất 1 ngày dự phòng --
+          rolling horizon sẽ tự động xét lại họ vào ngày kế tiếp có window.
+
+      GIAI ĐOẠN 3 -- improve_route() (2-opt + Or-opt, local_search.py): CHỈ đổi thứ tự
+          các khách đã có trong route, KHÔNG thêm/bớt ai. Cost function tối ưu là
+          return_time (giống hệt try_insert_at_position() của Cheapest Insertion), để
+          nhất quán thước đo với thuật toán chính.
+
+    LƯU Ý QUAN TRỌNG: giai đoạn 1 chỉ ưu tiên last-chance-CỦA-HÔM-NAY; nó không đảm
+    bảo tối ưu toàn cục cho những khách sắp thành last-chance vào 1-2 ngày tới. Trên
+    bộ dữ liệu TMH2026 Bảng B, nhiều ngày cuối tuần (5, 6, 7) dồn số lượng last-chance
+    lớn (tới 15 khách/ngày), nên ngay trong nội bộ giai đoạn 1 vẫn có khách thua nhau
+    (xem BUGFIX_NOTES.md, ca C095/C268 ở ngày 5) -- đây là giới hạn vật lý thật của
+    khung giờ hẹp cạnh tranh cao, không phải điểm có thể vá thêm bằng cách đổi thứ tự.
+
+    Toàn bộ xử lý route chạy TRƯỚC khi xoá khách khỏi `pending`, vì cần all_points
+    chứa đúng Customer object của mọi điểm trong route (kể cả khách vừa được chèn).
     """
     from local_search import improve_route  # import trễ (deferred) để tránh circular import:
     # local_search.py cần Stop/DayRoute từ scheduler.py ngay lúc load module, nên
@@ -326,37 +349,47 @@ def weekly_scheduler_with_local_search(
 
     for day in range(1, 8):
         candidates = [c for c in pending.values() if c.has_any_window_on(day)]
-        candidates.sort(key=lambda c: earliest_window_end_in_week(c, day))
         if max_orders_per_day is not None:
+            # Giới hạn áp dụng trên TOÀN BỘ candidates hôm nay trước khi tách nhóm,
+            # để giữ đúng ngữ nghĩa "chỉ xét N candidate đầu tiên" như bản gốc.
+            candidates.sort(key=lambda c: earliest_window_end_in_week(c, day))
             candidates = candidates[:max_orders_per_day]
 
         all_points = {depot.id: depot, **pending}
-        route, unserved_today = day_route_cheapest_insertion(candidates, depot, all_points, day)
 
-        # Hậu xử lý bằng Local Search NGAY TẠI ĐÂY, khi all_points còn đầy đủ mọi khách
-        # trong route (kể cả khách sắp bị xoá khỏi pending ở bước dưới).
+        # --- GIAI ĐOẠN 1: giữ chỗ cho last-chance candidates của hôm nay ---
+        last_chance = [c for c in candidates if next_available_day(c, day) is None]
+        normal_candidates = [c for c in candidates if next_available_day(c, day) is not None]
+
+        route, unserved_last_chance = day_route_cheapest_insertion(
+            last_chance, depot, all_points, day
+        )
+
+        # --- GIAI ĐOẠN 2: lấp candidate còn cơ hội tương lai vào phần route còn lại,
+        # theo đúng EDF + greedy-cheapest-first như thuật toán chính (không đổi triết
+        # lý xếp hạng, chỉ đổi THỜI ĐIỂM họ được xét so với last-chance). ---
+        normal_candidates.sort(key=lambda c: earliest_window_end_in_week(c, day))
+        remaining_normal = {c.id: c for c in normal_candidates}
+        still_unserved_normal: List[Customer] = []
+        while remaining_normal:
+            best_choice = None  # (local_cost, cust_id, new_stops, new_return_time)
+            for cust in remaining_normal.values():
+                for pos in range(len(route.stops) + 1):
+                    res = try_insert_at_position(route.stops, depot, all_points, cust, day, pos)
+                    if res is None:
+                        continue
+                    _new_stop, new_return_time, new_full_stops, local_cost = res
+                    if best_choice is None or local_cost < best_choice[0]:
+                        best_choice = (local_cost, cust.id, new_full_stops, new_return_time)
+            if best_choice is None:
+                break  # không còn ai trong nhóm normal chèn được nữa hôm nay
+            _, chosen_id, new_full_stops, new_return_time = best_choice
+            route = DayRoute(day=day, stops=new_full_stops, return_time=new_return_time)
+            del remaining_normal[chosen_id]
+        still_unserved_normal = list(remaining_normal.values())
+
+        # --- GIAI ĐOẠN 3: 2-opt + Or-opt, dọn lại thứ tự route trong ngày ---
         route = improve_route(route, depot, all_points, day)
-
-        # Route ngắn hơn sau Local Search có thể còn dư thời gian trong ngày (<24h) --
-        # thử chèn thêm các candidate hôm nay từng bị bỏ lại (unserved_today), theo đúng
-        # cơ chế Cheapest Insertion (không đổi chiến lược, chỉ tận dụng "chỗ trống" mới).
-        still_unserved = []
-        for cust in unserved_today:
-            # Xếp hạng vị trí chèn theo local_insertion_cost (nhất quán với Cheapest
-            # Insertion chính -- xem giải thích chi tiết trong day_route_cheapest_insertion()
-            # và BUGFIX_NOTES.md), thay vì theo new_return_time trực tiếp.
-            best_stops, best_return, best_local_cost = None, None, None
-            for pos in range(len(route.stops) + 1):
-                res = try_insert_at_position(route.stops, depot, all_points, cust, day, pos)
-                if res is None:
-                    continue
-                _new_stop, new_return_time, new_full_stops, local_cost = res
-                if best_local_cost is None or local_cost < best_local_cost:
-                    best_stops, best_return, best_local_cost = new_full_stops, new_return_time, local_cost
-            if best_stops is not None:
-                route = DayRoute(day=day, stops=best_stops, return_time=best_return)
-            else:
-                still_unserved.append(cust)
 
         result.routes[day] = route
 
@@ -364,6 +397,13 @@ def weekly_scheduler_with_local_search(
         for cid in served_ids:
             result.delivered_day_of[cid] = day
             del pending[cid]
+
+        # Khách KHÔNG được chèn hôm nay (cả last-chance lẫn normal) ở lại `pending`.
+        # Với normal candidates, rolling horizon sẽ tự xét lại họ vào ngày kế tiếp có
+        # window (giống bản gốc). Với last-chance candidates không chèn được
+        # (unserved_last_chance), hôm nay ĐÃ LÀ ngày cuối cùng của họ trong tuần --
+        # họ sẽ rơi vào result.unfulfilled ở cuối vòng lặp, không có ngày nào để thử
+        # lại nữa (next_available_day trả về None cho chính họ).
 
     result.unfulfilled = list(pending.keys())
     return result
@@ -373,7 +413,7 @@ if __name__ == "__main__":
     from data_model import load_data
 
     depot, customers = load_data("Data/locations.csv", "Data/time_windows.csv")
-    res = weekly_scheduler(depot, customers)
+    res = weekly_scheduler_with_local_search(depot, customers)
     total_served = sum(len(r.served_ids()) for r in res.routes.values())
     print("Tổng số khách:", len(customers))
     print("Đã giao được:", total_served)
