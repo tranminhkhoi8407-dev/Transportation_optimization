@@ -34,7 +34,10 @@ def plot_weekly_routes_interactive(depot, customers, result, output_filename="we
     
     # Cờ để legend chỉ hiển thị 1 lần, không bị trùng lặp 7 lần cho 7 ngày
     show_legend = {'depot': True, 'pending': True, 'served': True, 'route': True}
-    
+    # Nếu có đơn không hoàn thành thì thêm legend và vẽ các điểm này
+    unfulfilled_cids = set(result.unfulfilled)
+    show_legend['unfulfilled'] = True
+
     for day in range(1, 8):
         # Tính toán vị trí của subplot trên lưới 2x4
         row = 1 if day <= 4 else 2
@@ -48,7 +51,7 @@ def plot_weekly_routes_interactive(depot, customers, result, output_filename="we
             cand_x = [c.x for c in daily_candidates]
             cand_y = [c.y for c in daily_candidates]
             # Tạo nhãn hiển thị khi hover chuột
-            cand_hover = [f"<b>Khách chờ giao</b><br>ID: {c.id}<br>Nhu cầu: {c.demand} kg<br>Tọa độ: ({c.x:.2f}, {c.y:.2f})" for c in daily_candidates]
+            cand_hover = [f"<b>Khách chờ giao</b><br>ID: {c.id}<br>Time window: {c.windows_on(day)}<br>Tọa độ: ({c.x:.2f}, {c.y:.2f})" for c in daily_candidates]
             
             fig.add_trace(go.Scatter(
                 x=cand_x, y=cand_y, mode='markers',
@@ -68,6 +71,21 @@ def plot_weekly_routes_interactive(depot, customers, result, output_filename="we
             showlegend=show_legend['depot']
         ), row=row, col=col)
         show_legend['depot'] = False
+
+        daily_unfulfilled = [customers[cid] for cid in unfulfilled_cids if customers[cid].has_any_window_on(day)]
+        if daily_unfulfilled:
+            unf_x = [c.x for c in daily_unfulfilled]
+            unf_y = [c.y for c in daily_unfulfilled]
+            unf_hover = [f"<b>Rớt đơn (Cả tuần)</b><br>ID: {c.id}<br>Time window: {c.windows_on(day)}<br>Tọa độ: ({c.x:.2f}, {c.y:.2f})" for c in daily_unfulfilled]
+            
+            fig.add_trace(go.Scatter(
+                x=unf_x, y=unf_y, mode='markers',
+                marker=dict(color='red', size=8, line=dict(color='darkred', width=1)), # size=8 bằng đúng size chấm xanh
+                name='Khách rớt đơn cả tuần',
+                hoverinfo='text', hovertext=unf_hover,
+                showlegend=show_legend['unfulfilled']
+            ), row=row, col=col)
+            show_legend['unfulfilled'] = False
         
         # --- C. Vẽ Lộ trình nếu có đơn ---
         if route and route.stops:
@@ -81,9 +99,9 @@ def plot_weekly_routes_interactive(depot, customers, result, output_filename="we
             for stop in route.stops:
                 c = customers[stop.cust_id]
                 # Format thời gian theo hh:mm cho dễ đọc
-                arr_h, arr_m = int(stop.arrival // 60), int(stop.arrival % 60)
-                end_h, end_m = int(stop.service_end // 60), int(stop.service_end % 60)
-                served_hover.append(f"<b>ID: {c.id}</b><br>Đến nơi: {arr_h:02d}:{arr_m:02d}<br>Giao xong: {end_h:02d}:{end_m:02d}")
+                # arr_h, arr_m = int(stop.arrival // 60), int(stop.arrival % 60)
+                # end_h, end_m = int(stop.service_end // 60), int(stop.service_end % 60)
+                served_hover.append(f"<b>ID: {c.id}</b><br>Time window: {c.windows_on(day)}<br>Đến nơi: {stop.arrival}<br>Giao xong: {stop.service_end}")
                 
             fig.add_trace(go.Scatter(
                 x=route_x[1:-1], y=route_y[1:-1], mode='markers',
