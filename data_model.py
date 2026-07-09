@@ -61,7 +61,7 @@ def load_data(locations_path: str, time_windows_path: str) -> Tuple[Customer, Di
                 x=float(row["x_km"]),
                 y=float(row["y_km"]),
                 demand=float(row["demand_kg"]),
-                service_time=int(row["service_time"]),
+                service_time=int(float(row["service_time"])),
             )
             all_locs[cust.id] = cust
 
