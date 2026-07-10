@@ -161,7 +161,7 @@ def day_route_minimize_deferral(
         raise RuntimeError("BUG: tách Nhóm A ('đến hạn') / Nhóm B ('quá hạn') không khớp tổng số candidates")
 
     # --- GIAI ĐOẠN 1: ưu tiên tuyệt đối Nhóm A (đến hạn đúng hôm nay) ---
-    route, unserved_a = day_route_cheapest_insertion_multistart(group_a, depot, all_points, day)
+    route, unserved_a = day_route_cheapest_insertion(group_a, depot, all_points, day)
 
     # --- GIAI ĐOẠN 2: lấp Nhóm B (đã quá hạn từ trước, ưu tiên giao sớm để tránh fail)
     # vào phần route còn lại, vẫn theo đúng cơ chế cheapest-cạnh-tranh-công-bằng. ---

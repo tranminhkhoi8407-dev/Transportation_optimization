@@ -17,7 +17,7 @@ from main_algorithm.scheduler import (
     day_route_cheapest_insertion, earliest_window_end_in_week, WeeklyResult,
 )
 from main_algorithm.local_search import improve_route
-from test.metrics import compute_metrics
+from test_algorithm.metrics import compute_metrics
 
 plt.rcParams["font.family"] = "DejaVu Sans"
 
@@ -35,7 +35,7 @@ def route_distance(route):
     return d
 
 
-# --- 3 biến thể: gốc / chỉ Local Search / Local Search + chèn thêm candidate ---
+# --- 3 biến thể: Cheapest Insertion + EDF + local_cost_insertion / thêm Local Search / thêm multi-start cho nhóm ưu tiên ---
 res_base = weekly_scheduler(depot, customers)
 
 pending = dict(customers)
@@ -63,9 +63,9 @@ d_ls_only = sum(route_distance(r) for r in res_ls_only.routes.values())
 d_full = sum(route_distance(r) for r in res_full.routes.values())
 
 labels = [
-    "Gốc\n(Cheapest Insertion\n+ EDF)",
+    "Gốc\n(Cheapest Insertion\n+ EDF + Heuristic)",
     "+ Local Search\n(2-opt + Or-opt)\nchỉ đổi thứ tự",
-    "+ Local Search\n+ chèn thêm\ncandidate bỏ lại",
+    "+ multi-start\ncho nhóm ưu tiên",
 ]
 colors = ["#2E86AB", "#27AE60", "#8E44AD"]
 
@@ -105,11 +105,11 @@ for b, v in zip(bars3, vals_return_h):
     axes[2].text(b.get_x() + b.get_width() / 2, v + 1, f"{v:.1f}h", ha="center", fontweight="bold", fontsize=9)
 
 plt.tight_layout()
-plt.savefig("chart4_local_search_comparison.png", dpi=150)
+plt.savefig("test_algorithm/fig/chart4_local_search_comparison.png", dpi=150)
 plt.close()
 
 print("Đã tạo chart4_local_search_comparison.png")
 print()
-print(f"Completion rate : gốc={m_base.completion_rate:.2f}%  ->  +LS={m_ls_only.completion_rate:.2f}%  ->  +LS+chèn={m_full.completion_rate:.2f}%")
-print(f"Distance thuần  : gốc={d_base:.1f}km  ->  +LS={d_ls_only:.1f}km ({(d_base-d_ls_only)/d_base*100:+.2f}%)  ->  +LS+chèn={d_full:.1f}km ({(d_base-d_full)/d_base*100:+.2f}%)")
-print(f"return_time     : gốc={vals_return_h[0]:.1f}h  ->  +LS={vals_return_h[1]:.1f}h ({(vals_return_h[0]-vals_return_h[1])/vals_return_h[0]*100:+.2f}%)  ->  +LS+chèn={vals_return_h[2]:.1f}h ({(vals_return_h[0]-vals_return_h[2])/vals_return_h[0]*100:+.2f}%)")
+print(f"Completion rate : gốc={m_base.completion_rate:.2f}%  ->  +LS={m_ls_only.completion_rate:.2f}%  ->  +multi-start={m_full.completion_rate:.2f}%")
+print(f"Distance thuần  : gốc={d_base:.1f}km  ->  +LS={d_ls_only:.1f}km ({(d_base-d_ls_only)/d_base*100:+.2f}%)  ->  +multi-start={d_full:.1f}km ({(d_base-d_full)/d_base*100:+.2f}%)")
+print(f"return_time     : gốc={vals_return_h[0]:.1f}h  ->  +LS={vals_return_h[1]:.1f}h ({(vals_return_h[0]-vals_return_h[1])/vals_return_h[0]*100:+.2f}%)  ->  +multi-start={vals_return_h[2]:.1f}h ({(vals_return_h[0]-vals_return_h[2])/vals_return_h[0]*100:+.2f}%)")
