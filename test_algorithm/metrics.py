@@ -34,8 +34,9 @@ km/phút chờ để cứu thêm một đơn hàng đều đáng giá.
 import math
 from dataclasses import dataclass
 from typing import Dict, List
-from data_model import Customer, euclidean
-from scheduler import WeeklyResult
+from main_algorithm.data_model import Customer, euclidean
+from main_algorithm.scheduler import WeeklyResult, weekly_scheduler_with_local_search
+from gen_output.weekly_route import plot_weekly_routes_interactive
 
 
 @dataclass
@@ -109,6 +110,8 @@ def compute_metrics(
         if day_delivered > earliest_possible_day:
             n_deferred += 1
     deferral_rate = (n_deferred / n_delivered * 100.0) if n_delivered > 0 else 0.0
+    
+
 
     return WeeklyMetrics(
         completion_rate=n_delivered / n_total * 100.0,
@@ -123,35 +126,54 @@ def compute_metrics(
     )
 
 
-def print_metrics(name: str, m: WeeklyMetrics):
-    print(f"\n=== {name} ===")
+def print_metrics(customers: Customer, m: WeeklyMetrics, result: WeeklyResult):
+    print(f"\n=== Thống kê kết quả ===")
     print(f"  Completion rate       : {m.completion_rate:.2f}%  ({m.n_delivered}/{m.n_total} đơn)")
     print(f"  Không hoàn thành      : {m.n_unfulfilled} đơn")
     print(f"  Tổng quãng đường      : {m.total_distance_km:.1f} km")
     print(f"  Tổng thời gian chờ    : {m.total_waiting_minutes:.1f} phút")
     print(f"  Độ lệch chuẩn giờ-về  : {m.route_duration_std_hours:.2f} giờ (giữa các ngày hoạt động)")
     print(f"  Tỉ lệ đơn bị hẹn lại  : {m.deferral_rate:.2f}%")
+    for day, route in result.routes.items():
+        print(f"Ngày {day}: {len(route.stops)} điểm dừng, về kho lúc phút {route.return_time:.1f} "
+              f"({route.return_time/60:.2f}h)")
+    print(f"Số khách không hoàn thành chỉ có 1 ngày có window trong tuần: {sum(1 for cid in result.unfulfilled if customers[cid].num_days_with_windows() == 1)}")
+    print(f"Số khách không hoàn thành chỉ có 2 ngày có window trong tuần: {sum(1 for cid in result.unfulfilled if customers[cid].num_days_with_windows() == 2)}")
+    print(f"Số khách không hoàn thành chỉ có 3 ngày có window trong tuần: {sum(1 for cid in result.unfulfilled if customers[cid].num_days_with_windows() == 3)}")
+    print(f"Số khách không hoàn thành chỉ có 4 ngày có window trong tuần: {sum(1 for cid in result.unfulfilled if customers[cid].num_days_with_windows() == 4)}")
+    print(f"Số khách không hoàn thành chỉ có 5 ngày có window trong tuần: {sum(1 for cid in result.unfulfilled if customers[cid].num_days_with_windows() == 5)}")
+    print(f"Số khách không hoàn thành chỉ có 6 ngày có window trong tuần: {sum(1 for cid in result.unfulfilled if customers[cid].num_days_with_windows() == 6)}")
+    print(f"Số khách không hoàn thành chỉ có 7 ngày có window trong tuần: {sum(1 for cid in result.unfulfilled if customers[cid].num_days_with_windows() == 7)}")
+    
 
 
 if __name__ == "__main__":
-    from data_model import load_data
-    from scheduler import weekly_scheduler_with_local_search
-    from baselines import run_baseline
+    from main_algorithm.data_model import load_data
+    from main_algorithm.scheduler import weekly_scheduler_with_local_search, weekly_scheduler
+    from test_algorithm.baselines import run_baseline
+    import time
+    start = time.perf_counter()
 
     depot, customers = load_data("Data/locations.csv", "Data/time_windows.csv")
 
     main_result = weekly_scheduler_with_local_search(depot, customers)
+    #plot_weekly_routes_interactive(depot, customers, main_result, "main_algorithm_routes_new.html")
     m_main = compute_metrics(depot, customers, main_result)
-    print_metrics("Thuật toán chính (Cheapest Insertion + EDF liên-ngày)", m_main)
+    print_metrics(customers=customers, m=m_main, result=main_result)
 
-    nn_result = run_baseline(depot, customers, "nearest_neighbor")
-    m_nn = compute_metrics(depot, customers, nn_result)
-    print_metrics("Baseline 1 (Nearest Neighbor)", m_nn)
+    # mai_result = weekly_scheduler(depot, customers)
+    # #plot_weekly_routes_interactive(depot, customers, mai_result, "mai_algorithm_routes_old.html")
+    # m_mai = compute_metrics(depot, customers, mai_result)
+    # print_metrics("Thuật toán chính (Cheapest Insertion + EDF liên-ngày)", m_mai)
 
-    edd_result = run_baseline(depot, customers, "earliest_deadline_append")
-    m_edd = compute_metrics(depot, customers, edd_result)
-    print_metrics("Baseline 2 (Earliest-Deadline-in-day, nối đuôi)", m_edd)
+    # nn_result = run_baseline(depot, customers, "nearest_neighbor")
+    # m_nn = compute_metrics(depot, customers, nn_result)
+    # print_metrics("Baseline 1 (Nearest Neighbor)", m_nn)
+
+    # edd_result = run_baseline(depot, customers, "earliest_deadline_append")
+    # m_edd = compute_metrics(depot, customers, edd_result)
+    # print_metrics("Baseline 2 (Earliest-Deadline-in-day, nối đuôi)", m_edd)
 
     md_result = run_baseline(depot, customers, "minimize_deferral")
     m_md = compute_metrics(depot, customers, md_result)
-    print_metrics("Baseline 3 (Hạn chế tối đa việc hẹn lại)", m_md)
+    print_metrics(customers=customers, m=m_md, result=md_result)

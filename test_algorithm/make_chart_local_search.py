@@ -11,13 +11,13 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from data_model import load_data, euclidean
-from scheduler import (
+from main_algorithm.data_model import load_data, euclidean
+from main_algorithm.scheduler import (
     weekly_scheduler, weekly_scheduler_with_local_search,
     day_route_cheapest_insertion, earliest_window_end_in_week, WeeklyResult,
 )
-from local_search import improve_route
-from metrics import compute_metrics
+from main_algorithm.local_search import improve_route
+from test.metrics import compute_metrics
 
 plt.rcParams["font.family"] = "DejaVu Sans"
 

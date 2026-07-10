@@ -31,7 +31,7 @@ class Customer:
     x: float
     y: float
     demand: float
-    service_time: int  # phút
+    service_time: float  # phút
     # windows[day] = list các TimeWindow hợp lệ trong ngày đó (day: 1..7)
     windows: Dict[int, List[TimeWindow]] = field(default_factory=dict)
 
@@ -40,6 +40,13 @@ class Customer:
 
     def has_any_window_on(self, day: int) -> bool:
         return len(self.windows_on(day)) > 0
+    
+    def num_days_with_windows(self) -> int:
+        ans = 0
+        for day in range(1, 8):
+            if self.has_any_window_on(day):
+                ans += 1
+        return ans
 
 
 def parse_hhmm(s: str) -> int:
@@ -61,7 +68,7 @@ def load_data(locations_path: str, time_windows_path: str) -> Tuple[Customer, Di
                 x=float(row["x_km"]),
                 y=float(row["y_km"]),
                 demand=float(row["demand_kg"]),
-                service_time=int(float(row["service_time"])),
+                service_time=float(row["service_time"]),
             )
             all_locs[cust.id] = cust
 
@@ -113,7 +120,7 @@ def build_distance_matrix(depot: Customer, customers: Dict[str, Customer]):
 
 
 if __name__ == "__main__":
-    depot, customers = load_data("Data/locations.csv", "Data/time_windows.csv")
+    depot, customers = load_data("Data/locations_new.csv", "Data/time_window_new.csv")
     print("Depot:", depot)
     print("Số khách hàng:", len(customers))
     c1 = customers["C001"]

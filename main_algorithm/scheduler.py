@@ -18,7 +18,7 @@ vượt quá 1440 phút trong ngày).
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
-from data_model import Customer, TimeWindow, travel_time_minutes
+from main_algorithm.data_model import Customer, TimeWindow, travel_time_minutes
 
 DAY_END_MINUTE = 24 * 60  # 1440, giới hạn cứng: phải về kho trước nửa đêm
 
@@ -203,6 +203,107 @@ def day_route_cheapest_insertion(
     route = DayRoute(day=day, stops=stops, return_time=return_time)
     unserved = list(remaining.values())
     return route, unserved
+
+def day_route_cheapest_insertion_multistart(
+    candidates: List[Customer],
+    depot: Customer,
+    all_points: Dict[str, Customer],
+    day: int,
+) -> Tuple[DayRoute, List[Customer]]:
+    """
+    Biến thể multi-start của day_route_cheapest_insertion(), CHỈ dùng cho Giai đoạn 1
+    (last-chance) của weekly_scheduler_with_local_search() -- KHÔNG dùng ở Giai đoạn 2,
+    KHÔNG dùng trong baselines.py (baselines cần giữ nguyên day_route_cheapest_insertion()
+    gốc để việc so sánh 4 phương án trong report vẫn công bằng).
+
+    ĐỘNG LỰC (xem BUGFIX_NOTES.md, mục "Last-chance reserve"): Cheapest Insertion là
+    greedy thuần -- một khi 2 candidate có chi phí chèn gần bằng nhau ở bước đầu, thứ tự
+    remaining.values() (phụ thuộc thứ tự dict, tức thứ tự đọc CSV) quyết định luôn ai
+    thắng ai thua ở bước đó, và với nhóm last-chance thua-là-mất-luôn. Trace thủ công
+    trên bộ dữ liệu TMH2026 Bảng B cho thấy: với ĐÚNG một nhóm last-chance 15 người
+    (ngày 5), chạy Cheapest Insertion chuẩn (route trống, thứ tự dict tự nhiên) chỉ chèn
+    được 13/15 -- nhưng nếu ép bước ĐẦU TIÊN phải chèn một trong vài candidate cụ thể
+    (rồi để các bước sau cạnh tranh cheapest bình thường như cũ), kết quả tăng lên 14/15
+    một cách ổn định. Đây KHÔNG phải may rủi: random search hàng chục nghìn thứ tự chèn
+    khác nhau cho nhóm 15 người này chưa từng vượt quá 14/15 -- tức 14/15 là trần vật lý
+    thật của khung giờ hẹp đó, còn 13/15 của bản Cheapest Insertion chuẩn là do THUA OAN
+    vì thứ tự duyệt, không phải vì bài toán chỉ cho phép 13.
+
+    CÁCH LÀM: thử LẦN LƯỢT từng candidate làm "người được ép chèn trước" (route trống lúc
+    đó nên chỉ có đúng 1 vị trí khả thi cho họ -- pos=0), rồi để toàn bộ phần còn lại chạy
+    ĐÚNG cơ chế cheapest-cạnh-tranh-công-bằng như day_route_cheapest_insertion() nguyên
+    bản (không ưu tiên gì thêm nữa từ bước 2 trở đi). Giữ lại kết quả START có completion
+    cao nhất; nếu candidate được ép không thể chèn được (vd. window đã hết hạn ngay từ đầu
+    -- hiếm nhưng về lý thuyết có thể), coi lượt start đó là bất khả thi và bỏ qua, không
+    tính vào so sánh. Hoà completion -> ưu tiên return_time thấp hơn (route "rẻ" hơn).
+
+    CHI PHÍ: với n candidate trong nhóm last-chance, hàm này chạy Cheapest Insertion đầy
+    đủ N LẦN (một lần cho mỗi điểm khởi đầu bị ép) thay vì 1 lần -- tức chậm hơn ~N lần so
+    với bản gốc CHỈ CHO RIÊNG bước xây route last-chance. Nhóm last-chance mỗi ngày trên bộ
+    dữ liệu này dao động ~10-22 người (nhỏ hơn NHIỀU so với 300 khách tổng), nên chi phí
+    tuyệt đối vẫn nhỏ (đo thực tế: dưới 0.4s/ngày ngay cả với nhóm 22 người, so với ~9s
+    cho toàn bộ pipeline 7 ngày). Nếu về sau nhóm last-chance có thể phình to hơn nhiều
+    (vài trăm người/ngày), nên cân nhắc giới hạn số điểm khởi đầu thử (vd. chỉ thử N
+    candidate có local_insertion_cost thấp nhất ở bước đầu) thay vì thử toàn bộ như hiện tại.
+    """
+    if not candidates:
+        return day_route_cheapest_insertion(candidates, depot, all_points, day)
+
+    best_route: Optional[DayRoute] = None
+    best_unserved: Optional[List[Customer]] = None
+
+    for forced in candidates:
+        remaining = {c.id: c for c in candidates}
+        stops: List[Stop] = []
+        return_time = 0.0
+
+        # Bước ép: thử chèn `forced` vào route trống (chỉ có pos=0 khả thi lúc này).
+        # Nếu bất khả thi (vd. hết window ngay từ đầu), bỏ qua lượt start này hoàn toàn --
+        # KHÔNG âm thầm rơi về chạy không-ép, để tránh đếm trùng với lượt start khác.
+        res = try_insert_at_position(stops, depot, all_points, forced, day, 0)
+        if res is None:
+            continue
+        _new_stop, return_time, stops, _local_cost = res
+        del remaining[forced.id]
+
+        # Từ bước 2 trở đi: ĐÚNG cơ chế cheapest-cạnh-tranh-công-bằng của
+        # day_route_cheapest_insertion() gốc, không ưu tiên gì thêm.
+        while remaining:
+            best_choice = None
+            for cust in remaining.values():
+                for pos in range(len(stops) + 1):
+                    r2 = try_insert_at_position(stops, depot, all_points, cust, day, pos)
+                    if r2 is None:
+                        continue
+                    _new_stop2, new_return_time, new_full_stops, local_cost = r2
+                    if best_choice is None or local_cost < best_choice[0]:
+                        best_choice = (local_cost, cust.id, new_return_time, new_full_stops)
+            if best_choice is None:
+                break
+            _, chosen_id, return_time, stops = best_choice
+            del remaining[chosen_id]
+
+        candidate_route = DayRoute(day=day, stops=stops, return_time=return_time)
+        candidate_unserved = list(remaining.values())
+
+        if best_route is None:
+            best_route, best_unserved = candidate_route, candidate_unserved
+            continue
+
+        # So sánh: completion cao hơn thắng; hoà completion -> return_time thấp hơn thắng
+        # (đúng thứ tự ưu tiên completion > distance/thời gian như metrics.py đã định nghĩa).
+        cur_n = len(candidate_route.stops)
+        best_n = len(best_route.stops)
+        if cur_n > best_n or (cur_n == best_n and candidate_route.return_time < best_route.return_time - 1e-9):
+            best_route, best_unserved = candidate_route, candidate_unserved
+
+    if best_route is None:
+        # Không có candidate nào thậm chí chèn được ở bước ép (route trống mà vẫn fail) --
+        # rơi về bản gốc để không bao giờ trả về None (giữ đúng contract của hàm).
+        return day_route_cheapest_insertion(candidates, depot, all_points, day)
+
+    return best_route, best_unserved
+
 
 
 def day_route_cheapest_insertion_multistart(
@@ -400,7 +501,7 @@ def weekly_scheduler_with_local_search(
 
     ĐỘNG LỰC (xem BUGFIX_NOTES.md để có trace chi tiết từng ca cụ thể): với Cheapest
     Insertion thuần tuý, khi 2 khách có chi phí chèn GẦN BẰNG NHAU tại một bước (vd.
-    18.20 vs 18.35 -- chênh chưa tới 1%), thuật toán luôn chọn người rẻ hơn TRƯỚC, đẩy
+    18.20 vs 18.35 -- chêh chưa tới 1%), thuật toán luôn chọn người rẻ hơn TRƯỚC, đẩy
     người thua cuộc sang bước sau. Với khách còn NHIỀU ngày khác trong tuần, bị đẩy lùi
     một bước không sao -- ngày mai vẫn còn cơ hội. Nhưng với khách mà HÔM NAY LÀ NGÀY
     CUỐI CÙNG họ còn window trong cả tuần ("last-chance"), bị đẩy lùi dù chỉ 1 bước là
@@ -440,7 +541,7 @@ def weekly_scheduler_with_local_search(
     Toàn bộ xử lý route chạy TRƯỚC khi xoá khách khỏi `pending`, vì cần all_points
     chứa đúng Customer object của mọi điểm trong route (kể cả khách vừa được chèn).
     """
-    from local_search import improve_route  # import trễ (deferred) để tránh circular import:
+    from main_algorithm.local_search import improve_route  # import trễ (deferred) để tránh circular import:
     # local_search.py cần Stop/DayRoute từ scheduler.py ngay lúc load module, nên
     # scheduler.py không thể import local_search ở đầu file -- chỉ import khi thực sự
     # gọi tới hàm này.
@@ -461,6 +562,8 @@ def weekly_scheduler_with_local_search(
         # --- GIAI ĐOẠN 1: giữ chỗ cho last-chance candidates của hôm nay ---
         last_chance = [c for c in candidates if next_available_day(c, day) is None]
         normal_candidates = [c for c in candidates if next_available_day(c, day) is not None]
+        if len(last_chance) + len(normal_candidates) != len(candidates):
+            raise RuntimeError("BUG: tách last-chance vs normal candidates không khớp tổng số")
 
         # Dùng biến thể multi-start (xem docstring day_route_cheapest_insertion_multistart)
         # thay vì day_route_cheapest_insertion() thuần cho riêng bước này: với nhóm
@@ -519,10 +622,14 @@ def weekly_scheduler_with_local_search(
 
 
 if __name__ == "__main__":
-    from data_model import load_data
+    from main_algorithm.data_model import load_data
+    import time
+    start = time.perf_counter()
 
     depot, customers = load_data("Data/locations.csv", "Data/time_windows.csv")
     res = weekly_scheduler_with_local_search(depot, customers)
+
+    print(f"Runtime: {time.perf_counter() - start :.4f} second")
     total_served = sum(len(r.served_ids()) for r in res.routes.values())
     print("Tổng số khách:", len(customers))
     print("Đã giao được:", total_served)

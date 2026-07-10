@@ -11,8 +11,8 @@ Kiểm tra độc lập tính hợp lệ (feasibility) của một WeeklyResult:
 Nếu có bất kỳ vi phạm nào, in ra chi tiết lỗi.
 """
 
-from data_model import load_data, travel_time_minutes
-from scheduler import weekly_scheduler_with_local_search, DAY_END_MINUTE
+from main_algorithm.data_model import load_data, travel_time_minutes
+from main_algorithm.scheduler import weekly_scheduler_with_local_search, DAY_END_MINUTE
 
 EPS = 1e-6
 

@@ -11,15 +11,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
-from data_model import load_data
-from weekly_route import plot_weekly_routes_interactive
-from scheduler import weekly_scheduler_with_local_search
+from main_algorithm.data_model import load_data
+from gen_output.weekly_route import plot_weekly_routes_interactive
+from main_algorithm.scheduler import weekly_scheduler_with_local_search
 from baselines import run_baseline
 from metrics import compute_metrics
 
 plt.rcParams["font.family"] = "DejaVu Sans"  # hỗ trợ tốt tiếng Việt có dấu
 
-depot, customers = load_data("Data/locations.csv", "Data/time_windows.csv")
+depot, customers = load_data("Data/locations_new.csv", "Data/time_window_new.csv")
 
 main_result = weekly_scheduler_with_local_search(depot, customers)
 plot_weekly_routes_interactive(depot, customers, main_result, "main_algorithm_routes.html")

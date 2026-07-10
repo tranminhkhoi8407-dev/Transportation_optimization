@@ -32,8 +32,8 @@ return_time, trả về None nếu bất kỳ đâu vi phạm window/24h.
 """
 
 from typing import Dict, List, Optional
-from data_model import Customer, travel_time_minutes
-from scheduler import Stop, DayRoute, DAY_END_MINUTE, earliest_feasible_service
+from main_algorithm.data_model import Customer, travel_time_minutes
+from main_algorithm.scheduler import Stop, DayRoute, DAY_END_MINUTE, earliest_feasible_service
 
 
 def _rebuild_route(
@@ -121,10 +121,12 @@ def two_opt(
                     continue
                 new_return = _route_return_time(new_stops, depot, all_points)
                 if new_return < current_return - 1e-6:
+                    #print(f"2-opt cải thiện return_time: {current_return:.2f} -> {new_return:.2f}")
                     ids = candidate_order
                     current_stops = new_stops
                     current_return = new_return
                     improved = True
+                    
                     break  # first improvement: áp dụng ngay, quét lại từ đầu
             if improved:
                 break
@@ -178,6 +180,7 @@ def or_opt(
                         continue
                     new_return = _route_return_time(new_stops, depot, all_points)
                     if new_return < current_return - 1e-6:
+                        #print(f"Or-opt cải thiện return_time: {current_return:.2f} -> {new_return:.2f}")
                         ids = candidate_order
                         current_stops = new_stops
                         current_return = new_return
