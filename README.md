@@ -274,8 +274,6 @@ Thư mục `analysis_source/` chứa các ghi chú kỹ thuật đi sâu vào t�
 - **`BUGFIX_NOTES.md`** — nhật ký các quyết định thiết kế quan trọng nhất (vì sao xếp hạng chèn dùng `local_insertion_cost` thay vì `new_return_time`, vì sao cần multi-start cho last-chance...), kèm số liệu/ca cụ thể đã trace thủ công trên bộ dữ liệu thật.
 - **`05_complexity_analysis.md`** — đánh giá độ phức tạp thời gian/không gian lý thuyết và thực tế của thuật toán chính lẫn các baseline.
 
-> Lưu ý: `03_baseline_strategies.md` và `05_complexity_analysis.md` được viết ở một thời điểm còn 3 baseline (bao gồm cả "Earliest Deadline Append"); bản `baselines.py` hiện tại (sau refactor cuối) chỉ còn giữ lại 2 baseline như liệt kê ở mục [Baselines](#baselines) phía trên. Khi đọc các tài liệu này, phần nào nhắc tới baseline thứ 3 nên hiểu là tư liệu lịch sử, không phản ánh đúng code hiện hành.
-
 ---
 
 ## Lưu ý kỹ thuật
