@@ -85,7 +85,7 @@ Transportation_optimization/
 
 Yêu cầu Python ≥ 3.9 (code dùng cú pháp generic built-in như `list[str]`).
 
-Repo chưa có sẵn `requirements.txt`. Các thư viện ngoài cần cài:
+Các thư viện ngoài cần cài:
 
 ```bash
 pip install pandas matplotlib plotly seaborn numpy
@@ -95,8 +95,6 @@ pip install pandas matplotlib plotly seaborn numpy
 - `plotly` — bắt buộc, dùng để vẽ bản đồ tương tác HTML (`gen_output/weekly_route.py`).
 - `matplotlib` — dùng cho các script vẽ chart PNG trong `test_algorithm/` (`make_charts.py`, `make_chart_local_search.py`).
 - `seaborn`, `numpy` — chỉ dùng trong notebook EDA (`Data/EDA_TMH2026_BangB.ipynb`).
-
-> Gợi ý: nên thêm một file `requirements.txt` liệt kê đúng các gói trên (kèm version) để việc cài đặt và tái lập kết quả dễ dàng hơn cho người review.
 
 ---
 
@@ -137,8 +135,6 @@ python -m test_algorithm.metrics
 ```
 
 Vì các module dùng import dạng `from main_algorithm.scheduler import ...`, nên cần chạy bằng cờ `-m` (hoặc chạy từ thư mục gốc repo) để Python nhận đúng package, thay vì `python main_algorithm/scheduler.py` trực tiếp.
-
-> **Lưu ý:** `test_algorithm/make_charts.py` và `test_algorithm/make_chart_local_search.py` là script phân tích nội bộ dùng khi làm báo cáo, hiện có import chưa khớp hoàn toàn với cấu trúc thư mục hiện tại (ví dụ `make_chart_local_search.py` import `from test.metrics import ...` thay vì `from test_algorithm.metrics import ...`, và cả hai còn tham chiếu một baseline thứ ba — "Earliest Deadline Append" — đã không còn tồn tại trong `baselines.py` bản refactor cuối). Cần chỉnh lại import/tên baseline trước khi chạy lại 2 script này.
 
 ---
 
