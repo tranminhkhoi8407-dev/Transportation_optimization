@@ -1,0 +1,12 @@
+# Yêu cầu: Python >= 3.9 (code dùng cú pháp generic built-in như list[str])
+
+# --- Bắt buộc (core pipeline: main.py, main_algorithm/, gen_output/) ---
+pandas>=2.0.0        # gen_output/exporter.py — xuất WeeklyResult ra CSV
+plotly>=5.18.0        # gen_output/weekly_route.py — vẽ bản đồ tương tác HTML theo từng ngày
+
+# --- Dùng cho script phân tích/vẽ chart (test_algorithm/) ---
+matplotlib>=3.7.0     # test_algorithm/make_charts.py, make_chart_local_search.py — chart PNG so sánh thuật toán
+
+# --- Chỉ dùng trong notebook EDA (Data/EDA_TMH2026_BangB.ipynb) ---
+seaborn>=0.13.0
+numpy>=1.24.0
