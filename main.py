@@ -1,11 +1,10 @@
 import sys
 from pathlib import Path
-import time
 from typing import Tuple
 
 # Các import từ source code hiện tại
 from main_algorithm.data_model import load_data
-from main_algorithm.scheduler import weekly_scheduler_with_local_search
+from main_algorithm.scheduler import weekly_scheduler_with_local_search, benchmark_average_runtime, _print_benchmark_result
 from test_algorithm.metrics import compute_metrics, print_metrics
 from gen_output.exporter import export_weekly_result_to_csv, export_delayed_customers_to_csv, export_unfulfilled_customers_to_csv
 from gen_output.weekly_route import plot_weekly_routes_interactive
@@ -127,14 +126,17 @@ def main():
         print(f"[!] Lỗi khi load dữ liệu: {e}")
         sys.exit(1)
 
-    # 3. Bước 2 & Bước 3 & Bước 4: Chạy thuật toán và đo thời gian
+    # 3. Bước 2 & Bước 3 & Bước 4: Chạy thuật toán, đo runtime TRUNG BÌNH qua nhiều lần
     print("Running scheduler...")
     try:
-        start_time = time.perf_counter()
+        # benchmark_average_runtime() tự chạy lại thuật toán nhiều lần trên bản sao của
+        # customer_dict, không đụng tới customer_dict gốc (xem docstring trong
+        # scheduler.py). Sau khi có số liệu benchmark, vẫn cần chạy lại ĐÚNG 1 LẦN NỮA
+        # để lấy `result` thật dùng cho các bước xuất CSV/HTML phía dưới.
+        print("Đang đo runtime trung bình (có thể mất một lúc)...")
+        stats = benchmark_average_runtime(depot=depot, customers=customer_dict, n_runs=10, warmup=1)
+        _print_benchmark_result(stats)
         result = weekly_scheduler_with_local_search(depot=depot, customers=customer_dict)
-        end_time = time.perf_counter()
-        runtime = end_time - start_time
-        print(f"Runtime: {runtime:.3f} seconds")
     except Exception as e:
         print(f"[!] Lỗi trong quá trình chạy thuật toán: {e}")
         sys.exit(1)

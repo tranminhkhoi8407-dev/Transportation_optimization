@@ -519,15 +519,94 @@ def weekly_scheduler_with_local_search(
     return result
 
 
+def benchmark_average_runtime(
+    depot: Customer,
+    customers: Dict[str, Customer],
+    n_runs: int = 10,
+    use_local_search: bool = True,
+    warmup: int = 1,
+) -> Dict[str, float]:
+    """
+    Đo thời gian chạy TRUNG BÌNH của pipeline lập lịch qua nhiều lần lặp, thay vì chỉ
+    một lần chạy đơn lẻ như khối `if __name__ == "__main__":` cũ. Một lần chạy đơn lẻ
+    dễ bị nhiễu bởi các yếu tố tức thời của máy (cache OS, GC, các tiến trình nền khác
+    đang chiếm CPU), nên số liệu trung bình + độ lệch chuẩn qua nhiều lần phản ánh đúng
+    hơn hiệu năng thực của thuật toán -- đúng tinh thần "thời gian tham chiếu" mà mục
+    5.1 của report đã lưu ý là "không phải phép đo hiệu năng phần cứng chuẩn hoá".
+
+    Tham số:
+      depot, customers: dữ liệu đầu vào, dùng lại y hệt cho mọi lần chạy (không load lại
+        file mỗi lần, để tách riêng chi phí I/O ra khỏi thời gian đo thuật toán).
+      n_runs: số lần lặp lấy để tính trung bình (không tính các lần warmup).
+      use_local_search: True -> đo weekly_scheduler_with_local_search() (thuật toán đầy
+        đủ, có 2-opt/Or-opt); False -> đo weekly_scheduler() (bản gốc, không local search).
+      warmup: số lần chạy "khởi động" bỏ đi trước khi bắt đầu đo thật, nhằm loại bỏ hiệu
+        ứng lần chạy đầu tiên thường chậm hơn bất thường (import module lười, cache CPU
+        chưa "nóng", v.v.) làm lệch số liệu trung bình.
+
+    Trả về dict gồm:
+      "mean": thời gian chạy trung bình (giây)
+      "std": độ lệch chuẩn (giây) -- đo mức ổn định giữa các lần chạy
+      "min", "max": thời gian nhanh nhất / chậm nhất trong n_runs lần
+      "n_runs": số lần lặp thực sự đã tính vào trung bình (không gồm warmup)
+      "all_times": danh sách thời gian từng lần chạy (giây), để vẽ biểu đồ/kiểm tra thêm
+        nếu cần, không bắt buộc phải dùng.
+
+    LƯU Ý: vì weekly_scheduler()/weekly_scheduler_with_local_search() có tính DETERMINISTIC
+    (không dùng số ngẫu nhiên -- xem BUGFIX_NOTES.md), kết quả lịch trình (completion rate,
+    quãng đường...) sẽ GIỐNG HỆT NHAU qua mọi lần lặp; chỉ có runtime là dao động do các yếu
+    tố phần cứng/hệ điều hành bên ngoài thuật toán. Hàm này KHÔNG kiểm tra lại tính đúng đắn
+    của kết quả (đã có verify.py cho việc đó) -- chỉ tập trung đo thời gian.
+    """
+    import time
+    import math
+
+    algorithm_fn = weekly_scheduler_with_local_search if use_local_search else weekly_scheduler
+
+    # Warmup: chạy trước vài lần, không tính vào kết quả đo.
+    for _ in range(warmup):
+        algorithm_fn(depot=depot, customers=dict(customers))
+
+    all_times: List[float] = []
+    for _ in range(n_runs):
+        # dict(customers) để mỗi lần chạy nhận một bản sao mới của mapping id -> Customer,
+        # tránh trường hợp một lần chạy nào đó vô tình sửa đổi customers gốc rồi ảnh hưởng
+        # tới các lần chạy sau (dù hiện tại các hàm scheduler không mutate customers gốc,
+        # việc copy vẫn giữ benchmark an toàn nếu code thay đổi về sau).
+        start = time.perf_counter()
+        algorithm_fn(depot=depot, customers=dict(customers))
+        elapsed = time.perf_counter() - start
+        all_times.append(elapsed)
+
+    mean_time = sum(all_times) / len(all_times)
+    variance = sum((t - mean_time) ** 2 for t in all_times) / len(all_times)
+    std_time = math.sqrt(variance)
+
+    return {
+        "mean": mean_time,
+        "std": std_time,
+        "min": min(all_times),
+        "max": max(all_times),
+        "n_runs": len(all_times),
+        "all_times": all_times,
+    }
+
+
+def _print_benchmark_result(stats: Dict[str, float]) -> None:
+    """In kết quả benchmark_average_runtime() ra console theo định dạng dễ đọc."""
+    print(f"Số lần chạy đo:       {stats['n_runs']}")
+    print(f"Runtime trung bình:   {stats['mean']:.4f} giây")
+    print(f"Độ lệch chuẩn:        {stats['std']:.4f} giây")
+    print(f"Nhanh nhất / Chậm nhất: {stats['min']:.4f}s / {stats['max']:.4f}s")
+
+
 if __name__ == "__main__":
     from main_algorithm.data_model import load_data
-    import time
-    start = time.perf_counter()
 
     depot, customers = load_data("Data/locations.csv", "Data/time_windows.csv")
-    res = weekly_scheduler_with_local_search(depot, customers)
 
-    print(f"Runtime: {time.perf_counter() - start :.4f} second")
+    # Chạy 1 lần để in kết quả lịch trình chi tiết (giữ nguyên hành vi cũ của script).
+    res = weekly_scheduler_with_local_search(depot, customers)
     total_served = sum(len(r.served_ids()) for r in res.routes.values())
     print("Tổng số khách:", len(customers))
     print("Đã giao được:", total_served)
@@ -535,3 +614,8 @@ if __name__ == "__main__":
     for day, route in res.routes.items():
         print(f"Ngày {day}: {len(route.stops)} điểm dừng, về kho lúc phút {route.return_time:.1f} "
               f"({route.return_time/60:.2f}h)")
+
+    # Đo runtime TRUNG BÌNH qua nhiều lần lặp (thay vì chỉ 1 lần chạy đơn lẻ như trước).
+    print("\n--- Benchmark runtime trung bình ---")
+    stats = benchmark_average_runtime(depot, customers, n_runs=10, warmup=1)
+    _print_benchmark_result(stats)
